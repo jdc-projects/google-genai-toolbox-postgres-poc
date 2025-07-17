@@ -1,0 +1,25 @@
+services:
+  db:
+    image: postgres:17.5-alpine3.22
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db-data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: password
+      POSTGRES_USER: imdb
+      POSTGRES_DB: imdb
+
+  db-admin:
+    image: dpage/pgadmin4:9.5.0
+    ports:
+      - "8080:80"
+    volumes:
+      - ./pgadmin-config/servers.json:/pgadmin4/servers.json
+      - ./pgadmin-data:/var/lib/pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@jdc-projects.dev
+      PGADMIN_DEFAULT_PASSWORD: password
+
+networks:
+  tool-network:

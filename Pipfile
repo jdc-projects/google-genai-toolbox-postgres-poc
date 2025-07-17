@@ -1,0 +1,14 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+cinemagoer = "==2023.5.1"
+sqlalchemy = "==1.4.54"
+psycopg2-binary = "==2.9.10"
+
+[dev-packages]
+
+[requires]
+python_version = "3.13"
