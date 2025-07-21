@@ -1,4 +1,15 @@
 services:
+  genai-toolbox:
+    image: us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:0.9.0
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./tools.yml:/config/tools.yml
+    command: ["toolbox", "--tools-file", "/config/tools.yml", "--address", "0.0.0.0"]
+    depends_on:
+      db:
+        condition: service_healthy
+
   db:
     image: postgres:17.5-alpine3.22
     ports:
@@ -9,6 +20,11 @@ services:
       POSTGRES_PASSWORD: password
       POSTGRES_USER: imdb
       POSTGRES_DB: imdb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U toolbox_user -d toolbox_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   db-admin:
     image: dpage/pgadmin4:9.5.0
@@ -20,6 +36,6 @@ services:
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@jdc-projects.dev
       PGADMIN_DEFAULT_PASSWORD: password
-
-networks:
-  tool-network:
+    depends_on:
+      db:
+        condition: service_healthy

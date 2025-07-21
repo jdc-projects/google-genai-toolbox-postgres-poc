@@ -1,0 +1,279 @@
+sources:
+  imdb-postgres:
+    kind: postgres
+    host: db
+    port: 5432
+    database: imdb
+    user: imdb
+    password: password
+
+tools:
+  search_titles:
+    kind: postgres-sql
+    source: imdb-postgres
+    statement: |
+      SELECT tb.tconst, tb."titleType", tb."primaryTitle", tb."originalTitle",
+             tb."startYear", tb."endYear", tb."runtimeMinutes", tb.genres,
+             tr."averageRating", tr."numVotes"
+      FROM title_basics tb
+      LEFT JOIN title_ratings tr ON tb.tconst = tr.tconst
+      WHERE tb."primaryTitle" ILIKE '%' || $1 || '%'
+      ORDER BY tr."numVotes" DESC NULLS LAST
+      LIMIT $2
+    description: |
+      Search for movies and TV shows by title. Returns title information including
+      ratings and vote counts. Searches for partial matches in the title.
+      Do NOT use this tool if you need to search by exact title ID (tconst).
+      Example usage: Search for "Matrix" to find Matrix movies.
+    parameters:
+      - name: title
+        type: string
+        description: Title to search for (partial match allowed)
+      - name: limit
+        type: integer
+        description: Maximum number of results to return (default 10)
+
+  search_people:
+    kind: postgres-sql
+    source: imdb-postgres
+    statement: |
+      SELECT nb.nconst, nb."primaryName", nb."birthYear", nb."deathYear",
+             nb."primaryProfession", nb."knownForTitles"
+      FROM name_basics nb
+      WHERE nb."primaryName" ILIKE '%' || $1 || '%'
+      ORDER BY nb."primaryName"
+      LIMIT $2
+    description: |
+      Search for actors, directors, and other film industry professionals by name.
+      Returns basic information including birth/death years and known professions.
+      Searches for partial matches in the person's name.
+    parameters:
+      - name: name
+        type: string
+        description: Person's name to search for (partial match allowed)
+      - name: limit
+        type: integer
+        description: Maximum number of results to return (default 10)
+
+  top_rated_content:
+    kind: postgres-sql
+    source: imdb-postgres
+    statement: |
+      SELECT tb.tconst, tb."titleType", tb."primaryTitle", tb."startYear",
+             tb."runtimeMinutes", tb.genres, tr."averageRating", tr."numVotes"
+      FROM title_basics tb
+      INNER JOIN title_ratings tr ON tb.tconst = tr.tconst
+      WHERE tr."numVotes" >= $1
+      AND tb."titleType" = $2
+      ORDER BY tr."averageRating" DESC
+      LIMIT $3
+    description: |
+      Get top-rated movies or TV shows with a minimum vote threshold.
+      Returns highly-rated content sorted by average rating.
+      Content types include: movie, tvSeries, tvMiniSeries, tvMovie, tvSpecial.
+    parameters:
+      - name: min_votes
+        type: integer
+        description: Minimum number of votes required (e.g., 1000 for popular content)
+      - name: content_type
+        type: string
+        description: Type of content (movie, tvSeries, tvMiniSeries, tvMovie, tvSpecial)
+      - name: limit
+        type: integer
+        description: Maximum number of results to return
+
+  get_cast_crew:
+    kind: postgres-sql
+    source: imdb-postgres
+    statement: |
+      SELECT tp.tconst, tp.ordering, tp.nconst, nb."primaryName",
+             tp.category, tp.job, tp.characters
+      FROM title_principals tp
+      INNER JOIN name_basics nb ON tp.nconst = nb.nconst
+      WHERE tp.tconst = $1
+      ORDER BY tp.ordering
+      LIMIT $2
+    description: |
+      Get cast and crew information for a specific title using its IMDb ID (tconst).
+      Returns actors, directors, writers, and other crew members in order of billing.
+      The tconst should be in format like 'tt0133093' for The Matrix.
+    parameters:
+      - name: title_id
+        type: string
+        description: IMDb title ID (tconst) in format like 'tt0133093'
+      - name: limit
+        type: integer
+        description: Maximum number of cast/crew members to return
+
+  get_filmography:
+    kind: postgres-sql
+    source: imdb-postgres
+    statement: |
+      SELECT tb.tconst, tb."primaryTitle", tb."titleType", tb."startYear",
+             tp.category, tp.job, tp.characters, tr."averageRating"
+      FROM title_principals tp
+      INNER JOIN title_basics tb ON tp.tconst = tb.tconst
+      LEFT JOIN title_ratings tr ON tb.tconst = tr.tconst
+      WHERE tp.nconst = $1
+      ORDER BY tb."startYear" DESC NULLS LAST
+      LIMIT $2
+    description: |
+      Get complete filmography for a specific person using their IMDb ID (nconst).
+      Returns all movies and TV shows they've worked on, including their role.
+      The nconst should be in format like 'nm0000206' for Keanu Reeves.
+    parameters:
+      - name: person_id
+        type: string
+        description: IMDb person ID (nconst) in format like 'nm0000206'
+      - name: limit
+        type: integer
+        description: Maximum number of titles to return
+
+  analyze_genres:
+    kind: postgres-sql
+    source: imdb-postgres
+    statement: |
+      SELECT
+        UNNEST(string_to_array(tb.genres, ',')) AS genre,
+        COUNT(*) as title_count,
+        ROUND(AVG(tr."averageRating")::numeric, 2) as avg_rating,
+        ROUND(AVG(tr."numVotes")::numeric, 0) as avg_votes
+      FROM title_basics tb
+      LEFT JOIN title_ratings tr ON tb.tconst = tr.tconst
+      WHERE tb."titleType" = $1
+      AND tb."startYear" >= $2
+      AND tb."startYear" <= $3
+      AND tb.genres IS NOT NULL
+      GROUP BY genre
+      HAVING COUNT(*) >= $4
+      ORDER BY avg_rating DESC
+      LIMIT $5
+    description: |
+      Analyze movie/TV show genres by various metrics including count, average rating,
+      and average vote count. Useful for understanding genre trends and popularity.
+    parameters:
+      - name: content_type
+        type: string
+        description: Type of content to analyze (movie, tvSeries, etc.)
+      - name: start_year
+        type: integer
+        description: Start year for analysis (e.g., 2000)
+      - name: end_year
+        type: integer
+        description: End year for analysis (e.g., 2024)
+      - name: min_count
+        type: integer
+        description: Minimum number of titles in genre to include
+      - name: limit
+        type: integer
+        description: Maximum number of genres to return
+
+  yearly_trends:
+    kind: postgres-sql
+    source: imdb-postgres
+    statement: |
+      SELECT
+        tb."startYear",
+        COUNT(*) as title_count,
+        ROUND(AVG(tr."averageRating")::numeric, 2) as avg_rating,
+        ROUND(AVG(tr."numVotes")::numeric, 0) as avg_votes,
+        ROUND(AVG(tb."runtimeMinutes")::numeric, 0) as avg_runtime
+      FROM title_basics tb
+      LEFT JOIN title_ratings tr ON tb.tconst = tr.tconst
+      WHERE tb."titleType" = $1
+      AND tb."startYear" >= $2
+      AND tb."startYear" <= $3
+      AND tb."startYear" IS NOT NULL
+      GROUP BY tb."startYear"
+      ORDER BY tb."startYear"
+    description: |
+      Analyze yearly trends in movie/TV production including number of titles,
+      average ratings, vote counts, and runtime. Useful for understanding
+      industry trends over time.
+    parameters:
+      - name: content_type
+        type: string
+        description: Type of content to analyze (movie, tvSeries, etc.)
+      - name: start_year
+        type: integer
+        description: Start year for analysis
+      - name: end_year
+        type: integer
+        description: End year for analysis
+
+  find_collaborations:
+    kind: postgres-sql
+    source: imdb-postgres
+    statement: |
+      SELECT
+        tb.tconst, tb."primaryTitle", tb."startYear",
+        STRING_AGG(DISTINCT CASE WHEN tp.category = 'director' THEN nb."primaryName" END, ', ') as directors,
+        STRING_AGG(DISTINCT CASE WHEN tp.category IN ('actor', 'actress') THEN nb."primaryName" END, ', ') as actors,
+        tr."averageRating"
+      FROM title_principals tp
+      INNER JOIN title_basics tb ON tp.tconst = tb.tconst
+      INNER JOIN name_basics nb ON tp.nconst = nb.nconst
+      LEFT JOIN title_ratings tr ON tb.tconst = tr.tconst
+      WHERE tp.tconst IN (
+        SELECT DISTINCT tp1.tconst
+        FROM title_principals tp1
+        WHERE tp1.nconst = $1
+      )
+      AND tp.tconst IN (
+        SELECT DISTINCT tp2.tconst
+        FROM title_principals tp2
+        WHERE tp2.nconst = $2
+      )
+      GROUP BY tb.tconst, tb."primaryTitle", tb."startYear", tr."averageRating"
+      ORDER BY tb."startYear" DESC
+      LIMIT $3
+    description: |
+      Find movies/shows where two specific people have collaborated.
+      Useful for finding actor-director partnerships or co-star relationships.
+      Requires both people's IMDb IDs (nconst format).
+    parameters:
+      - name: person1_id
+        type: string
+        description: First person's IMDb ID (nconst) in format like 'nm0000206'
+      - name: person2_id
+        type: string
+        description: Second person's IMDb ID (nconst) in format like 'nm0000138'
+      - name: limit
+        type: integer
+        description: Maximum number of collaborations to return
+
+  get_title_details:
+    kind: postgres-sql
+    source: imdb-postgres
+    statement: |
+      SELECT tb.tconst, tb."titleType", tb."primaryTitle", tb."originalTitle",
+             tb."isAdult", tb."startYear", tb."endYear", tb."runtimeMinutes", tb.genres,
+             tr."averageRating", tr."numVotes"
+      FROM title_basics tb
+      LEFT JOIN title_ratings tr ON tb.tconst = tr.tconst
+      WHERE tb.tconst = $1
+    description: |
+      Get detailed information for a specific title using its IMDb ID (tconst).
+      Returns complete title information including ratings if available.
+      Use this when you have the exact IMDb title ID.
+    parameters:
+      - name: title_id
+        type: string
+        description: IMDb title ID (tconst) in format like 'tt0133093'
+
+  get_person_details:
+    kind: postgres-sql
+    source: imdb-postgres
+    statement: |
+      SELECT nb.nconst, nb."primaryName", nb."birthYear", nb."deathYear",
+             nb."primaryProfession", nb."knownForTitles"
+      FROM name_basics nb
+      WHERE nb.nconst = $1
+    description: |
+      Get detailed information for a specific person using their IMDb ID (nconst).
+      Returns complete person information including professions and known titles.
+      Use this when you have the exact IMDb person ID.
+    parameters:
+      - name: person_id
+        type: string
+        description: IMDb person ID (nconst) in format like 'nm0000206'
