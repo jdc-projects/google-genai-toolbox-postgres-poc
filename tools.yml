@@ -82,6 +82,34 @@ tools:
         type: integer
         description: Maximum number of results to return
 
+  get_person_top_rated:
+    kind: postgres-sql
+    source: imdb-postgres
+    statement: |
+      SELECT tb.tconst, tb."titleType", tb."primaryTitle", tb."startYear",
+             tb."runtimeMinutes", tb.genres, tr."averageRating", tr."numVotes"
+      FROM title_principals tp
+      INNER JOIN title_basics tb ON tp.tconst = tb.tconst
+      INNER JOIN title_ratings tr ON tb.tconst = tr.tconst
+      WHERE tp.nconst = CAST(SUBSTRING($1, 3) AS INTEGER)
+      AND tb."titleType" = $2
+      ORDER BY tr."averageRating" DESC
+      LIMIT $3
+    description: |
+      Get top-rated movies or TV shows for a specific person.
+      Returns highly-rated content sorted by average rating.
+      Content types include: movie, tvSeries, tvMiniSeries, tvMovie, tvSpecial.
+    parameters:
+      - name: person_id
+        type: string
+        description: IMDb person ID (nconst) in format like 'nm0000206'
+      - name: content_type
+        type: string
+        description: Type of content (movie, tvSeries, tvMiniSeries, tvMovie, tvSpecial)
+      - name: limit
+        type: integer
+        description: Maximum number of results to return
+
   get_cast_crew:
     kind: postgres-sql
     source: imdb-postgres
